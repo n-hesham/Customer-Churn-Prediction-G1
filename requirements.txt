@@ -1,0 +1,11 @@
+# requirements.txt
+mlflow>=2.0   
+pandas
+scikit-learn
+numpy
+joblib
+matplotlib
+seaborn
+pytest
+dvc
+evidently

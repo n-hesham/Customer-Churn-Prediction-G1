@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+.Python
+env/
+venv/
+myenv/ # Or whatever you named your virtual environment
+.venv/
+
+# MLflow
+mlruns/
+.mlflow-夢中 # (أو أي ملفات .mlflow-*)
+
+# Reports (if generated locally and you don't want to track them if they are large)
+# data/reports/*.html
+# test_reports/
+
+# IDE specific
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS specific
+.DS_Store
+Thumbs.db

@@ -1,0 +1,183 @@
+name: Churn Model CI/CD
+
+on:
+  push:
+    branches: [ main, develop ] # Trigger on push to main and develop
+  pull_request:
+    branches: [ main, develop ] # Trigger on PR to main and develop
+
+jobs:
+  test-lint-and-validate:
+    name: Test, Lint & Validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10'] # Test on multiple Python versions
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install flake8 pytest # Ensure test/lint tools are installed
+
+    - name: Lint with Flake8
+      run: |
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics # Keep critical errors
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+        # Consider running flake8 without --select first to see all issues, then refine.
+        flake8 . --count --exit-zero --max-complexity=12 --max-line-length=127 --statistics
+
+    - name: Run Pytests
+      run: pytest tests/ # Ensure you have tests in the 'tests' directory
+
+    # Optional: Data Validation step (e.g., using Evidently if you have a script for it)
+    # - name: Run Data Validation Checks (Placeholder)
+    #   if: always() # Run even if previous steps fail to see validation report
+    #   run: |
+    #     # This assumes you have a script to run data validation, e.g., on sample data
+    #     # python -m src.utils generate_quality_report --current data/raw/customer_churn_dataset-training-master.csv --output reports/ci_data_validation.html
+    #     # mkdir -p reports # Ensure directory exists
+    #     echo "Data validation step placeholder"
+    # - name: Upload Data Validation Report
+    #   if: always() && steps.run-data-validation-checks.conclusion == 'success' # Adjust condition as needed
+    #   uses: actions/upload-artifact@v3
+    #   with:
+    #     name: data-validation-report
+    #     path: reports/ci_data_validation.html
+
+
+  train-and-register-model:
+    name: Train and Register Model
+    runs-on: ubuntu-latest
+    needs: test-lint-and-validate # Run only if tests and linting pass
+    # Trigger on push to main or when a new tag starting with 'v' is pushed
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    environment: production # Optional: if you have GitHub environments with secrets for production
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9' # Use a specific, consistent version for training
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install DVC (if used for data versioning)
+      if: ${{ false }} # Set to true if you are using DVC for data
+      uses: iterative/setup-dvc@v1
+      # with:
+      #   version: 'latest' # or specific version
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Configure AWS Credentials (for MLflow S3 backend or DVC S3 remote)
+      # Only run if AWS secrets are configured in GitHub repository/organization settings
+      if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' && secrets.AWS_REGION != '' }}
+      uses: aws-actions/configure-aws-credentials@v2 # Use a more recent version if available
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Pull DVC data (if applicable)
+      if: ${{ false }} # Set to true if you are using DVC and need to pull data
+      run: |
+        # Example: dvc pull data/raw # Pulls all tracked files in data/raw
+        # Ensure your DVC remote is configured (e.g., in .dvc/config or via environment variables)
+        # dvc remote modify myremote endpointurl ${{ secrets.S3_ENDPOINT_URL }} # If using MinIO/custom S3
+        dvc pull -r myremote # Replace 'myremote' with your DVC remote name
+        echo "DVC pull executed."
+      env:
+        # For DVC remotes that require authentication, if not using AWS instance profiles
+        DVC_REMOTE_MYREMOTE_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        DVC_REMOTE_MYREMOTE_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - name: Set up MLflow Tracking Environment Variables
+      # These are used by the training script to connect to your MLflow tracking server
+      run: |
+        echo "Setting MLflow environment variables..."
+        echo "MLFLOW_TRACKING_URI=${{ secrets.MLFLOW_TRACKING_URI }}" >> $GITHUB_ENV
+        if [ -n "${{ secrets.MLFLOW_S3_ENDPOINT_URL }}" ]; then
+          echo "MLFLOW_S3_ENDPOINT_URL=${{ secrets.MLFLOW_S3_ENDPOINT_URL }}" >> $GITHUB_ENV
+        fi
+        # For MLflow tracking servers that require authentication
+        if [ -n "${{ secrets.MLFLOW_TRACKING_USERNAME }}" ]; then
+          echo "MLFLOW_TRACKING_USERNAME=${{ secrets.MLFLOW_TRACKING_USERNAME }}" >> $GITHUB_ENV
+        fi
+        if [ -n "${{ secrets.MLFLOW_TRACKING_PASSWORD }}" ]; then
+          echo "MLFLOW_TRACKING_PASSWORD=${{ secrets.MLFLOW_TRACKING_PASSWORD }}" >> $GITHUB_ENV
+        fi
+      # The env block below is an alternative way for the current step, but >> $GITHUB_ENV makes them available to subsequent steps.
+      # env:
+      #   MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+      #   MLFLOW_S3_ENDPOINT_URL: ${{ secrets.MLFLOW_S3_ENDPOINT_URL }}
+      #   MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+      #   MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+
+    - name: Run Training Pipeline
+      run: |
+        echo "Starting training pipeline..."
+        # Option 1: Using MLflow Projects (if MLproject file is set up)
+        # mlflow run . -e main_training --experiment-name "Your_Experiment_Name_From_Config"
+        # Option 2: Directly running the Python training script
+        python -m src.train_pipeline
+      # The training script (src.train_pipeline.py) should handle model training,
+      # logging to MLflow, and model registration within MLflow.
+
+    # Optional: Upload MLflow run artifacts (if NOT using remote tracking with remote artifact store)
+    # - name: Archive MLflow run artifacts (if local tracking)
+    #   if: ${{ env.MLFLOW_TRACKING_URI == '' || startsWith(env.MLFLOW_TRACKING_URI, 'file:') }}
+    #   uses: actions/upload-artifact@v3
+    #   with:
+    #     name: mlflow-run-artifacts
+    #     path: |
+    #       mlruns/
+    #       models/ # If models are saved locally by the script in addition to MLflow
+    #       data/reports/ # If reports are generated and you want to archive them
+
+    # Placeholder for Deployment steps - This is highly dependent on your target platform
+    # - name: Deploy Model to Staging/Production (Placeholder)
+    #   if: github.ref == 'refs/heads/main' # Example: Deploy only from main branch pushes
+    #   run: |
+    #     echo "Model deployment placeholder."
+    #     # Add scripting here to:
+    #     # 1. Get the latest registered model version (e.g., "Production" stage) from MLflow.
+    #     #    MODEL_VERSION_URI=$(mlflow models get-latest-versions ${{ env.MLFLOW_MODEL_NAME }} --stages Production -o json | jq -r '.[0].source')
+    #     # 2. Build a Docker image with the model server (e.g., Flask app).
+    #     #    docker build -t my-churn-model-server:${{ github.sha }} .
+    #     # 3. Push Docker image to a registry (e.g., Docker Hub, ECR, GCR).
+    #     #    docker push my-churn-model-server:${{ github.sha }}
+    #     # 4. Deploy to your serving infrastructure (Kubernetes, SageMaker, AzureML, etc.).
+    #     #    kubectl apply -f deployment.yaml
+    #   env:
+    #     MLFLOW_MODEL_NAME: "ChurnPredictionHGB_Refactored" # From your config.py
