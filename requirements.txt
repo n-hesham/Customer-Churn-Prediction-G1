@@ -1,0 +1,13 @@
+pandas
+lightgbm
+scikit-learn
+imblearn
+seaborn
+matplotlib
+sqlalchemy
+mysql-connector-python
+pyyaml
+joblib
+mlflow
+fastapi
+uvicorn

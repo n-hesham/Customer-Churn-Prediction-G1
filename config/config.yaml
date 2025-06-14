@@ -1,0 +1,25 @@
+data:
+  raw_data_query: "SELECT * FROM customer_churn"
+  processed_dir: "C:/Users/Nour Hesham/Documents/Customer-Churn-Prediction-G1/data/processed"
+  train_processed: "C:/Users/Nour Hesham/Documents/Customer-Churn-Prediction-G1/data/processed/train_processed.csv"
+  test_processed: "C:/Users/Nour Hesham/Documents/Customer-Churn-Prediction-G1/data/processed/test_processed.csv"
+
+database:
+  host: "localhost"
+  user: "root"
+  password: "noureldeen123321"
+  database: "customer db"
+
+preprocessing:
+  encoder_path: "C:/Users/Nour Hesham/Documents/Customer-Churn-Prediction-G1/models/saved_preprocessing/One_Hot_Encoder.pkl"
+  scaler_path: "C:/Users/Nour Hesham/Documents/Customer-Churn-Prediction-G1/models/saved_preprocessing/standard_scaler.pkl"
+  stats_path: "C:/Users/Nour Hesham/Documents/Customer-Churn-Prediction-G1/models/saved_preprocessing/stats.pkl"
+  categorical_columns: ["Gender", "SubscriptionType", "ContractLength", "Tenure_group", "Age_group"]
+  numerical_columns: ["Age", "Tenure", "UsageFrequency", "SupportCalls", "PaymentDelay", "TotalSpend", "LastInteraction", "Log_Usage_Rate", "Spend_Per_Usage", "Payment_Delay_Ratio", "High_Value", "At_Risk"]
+
+model:
+  model_path: "C:/Users/Nour Hesham/Documents/Customer-Churn-Prediction-G1/models/trained_models/best_lgb_model.pkl"
+
+mlflow:
+  tracking_uri: "http://localhost:5000"
+  experiment_name: "Customer_Churn_Prediction"
